@@ -677,3 +677,60 @@ fn flip_bool_type(boolean: BooleanVal) -> BooleanVal {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rupple_frontend::checked_program;
+    
+    #[test]
+    fn evaluates_statements_and_stores_the_computed_result() {
+        let program = checked_program(
+            "
+                let mut first = 1;
+                let second = 1 + 2;
+
+                first+=1;
+
+                let result = first + second;
+            "
+        ).expect("\ntest source should type check\n");
+        
+        let mut interpreter = Interpreter::new();
+
+        interpreter
+            .evaluate(&program)
+            .expect("\ntyped program should evaluate\n");
+        
+        assert_eq!(
+            interpreter.get_global("result")
+                .expect("\nCouldn't get global value result\n"),
+            &Value::Integer(5)
+        )
+    }
+
+    #[test]
+    fn stores_functions_and_lets_us_call_them_later() {
+       let program = checked_program(
+           "
+                let result = add(1, 2);
+
+                fn add(a: int, b: int) -> int {
+                    return a + b;
+                }
+           "
+       )
+    .expect("\ntest source should type check"); 
+
+       let mut interpreter = Interpreter::new();
+
+       interpreter.evaluate(&program)
+        .expect("\ntyped program should evaluate\n");
+
+       assert_eq!(
+           interpreter.get_global("result")
+               .expect("\nCouldn't call function defined after the call site\n"),
+           &Value::Integer(3)
+       )
+    }
+}
