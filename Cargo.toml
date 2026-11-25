@@ -11,8 +11,7 @@ description = "A minimal language with rust-like syntax that aims to make writin
 readme = "README.md"
 license = "MIT"
 repository = "https://github.com/thecybro/Rupple"
-homepage = "https://github.com/thecybro/Rupple"
-keywords = ["language", "parser", "lexer", "compiler", "intrepreter", "rupple"]
+keywords = ["language", "parser", "lexer", "compiler", "rupple"]
 categories = ["compilers"]
 
 

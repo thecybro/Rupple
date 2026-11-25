@@ -6,7 +6,6 @@ description = "Interpreter of the rupple language"
 readme = "README.md"
 license = "MIT"
 repository = "https://github.com/thecybro/Rupple"
-homepage = "https://github.com/thecybro/Rupple"
 keywords = ["language", "compiler", "interpreter", "rupple"]
 categories = ["compilers"]
 

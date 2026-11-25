@@ -284,7 +284,7 @@ impl Interpreter {
                 self.eval_expression(expr)?;
                 Ok(Flow::Continue)
             }
-            _ => todo!(),
+            _ => return Err(EvalError::UnsupportedStatement(stmt.clone())),
         }
     }
 
@@ -422,7 +422,9 @@ impl Interpreter {
 
         Ok(Value::Unit)
     }
+}
 
+impl Interpreter {
     fn eval_expression(&mut self, expression: &TypedExpr) -> Result<Value> {
         match &expression.kind {
             TypedExprKind::Integer(value) => Ok(Value::Integer(*value)),
@@ -451,7 +453,7 @@ impl Interpreter {
             _ => todo!(),
         }
     }
-
+    
     /// This is the actual function that evaluates/executes the function
     /// when you call it by doing `let x = func_name()`
     ///
@@ -463,9 +465,9 @@ impl Interpreter {
         // We would have the entire function body stored in value
         // println!("From interpreter/impl.rs: line 457\n");
         let value = self.get_current(name)?.clone();
-
+        
         // println!("From interpreter/impl.rs: line 459\nGot {value}");
-
+        
         match value {
             Value::Function(func) => {
                 // The environment of the function would have the environment id
@@ -477,12 +479,12 @@ impl Interpreter {
                 // accessible to it
                 let caller_env = self.current;
                 let func_call_env = self.create_env(Some(func.closure));
-
+                
                 // We map each call site argument/identifier to the parameter the
                 // called function expects; based on position
                 for (parameter, argument) in func.parameters.iter().zip(arguments.iter()) {
                     let arg_val = self.eval_expression(argument)?;
-
+                    
                     self.define(
                         // We define the arguments and their values from the callers environment
                         // in the execution environment of the function
@@ -491,20 +493,20 @@ impl Interpreter {
                         arg_val,
                     )?;
                 }
-
+                
                 self.current = func_call_env;
-
+                
                 let executed = self.eval_block(&func.body);
-
+                
                 self.current = caller_env;
-
+                
                 let flow = executed?;
-
+                
                 let return_value = match flow {
                     Flow::Return(value) => value,
                     Flow::Continue => Value::Unit,
                 };
-
+                
                 Ok(return_value)
             }
             _ => {
@@ -514,53 +516,53 @@ impl Interpreter {
                 })
             }
         }
-    }
+}
 
     fn eval_boolean_expression(&mut self, boolean_type: &BooleanVal) -> Result<Value> {
-        match boolean_type {
-            BooleanVal::True => Ok(Value::Boolean(BooleanVal::True)),
-            BooleanVal::False => Ok(Value::Boolean(BooleanVal::False)),
-        }
+    match boolean_type {
+        BooleanVal::True => Ok(Value::Boolean(BooleanVal::True)),
+        BooleanVal::False => Ok(Value::Boolean(BooleanVal::False)),
     }
-
+}
+    
     fn eval_arithmetic_expression(
-        &mut self,
-        left: &TypedExpr,
-        operator: ArithmeticOp,
-        right: &TypedExpr,
-    ) -> Result<Value> {
-        let left = self.eval_expression(left)?;
-        let right = self.eval_expression(right)?;
+    &mut self,
+    left: &TypedExpr,
+    operator: ArithmeticOp,
+    right: &TypedExpr,
+) -> Result<Value> {
+    let left = self.eval_expression(left)?;
+    let right = self.eval_expression(right)?;
 
-        match (left, operator, right) {
-            (Value::Integer(left), ArithmeticOp::Add, Value::Integer(right)) => {
-                Ok(Value::Integer(left + right))
-            }
-            (Value::Integer(left), ArithmeticOp::Subtract, Value::Integer(right)) => {
-                Ok(Value::Integer(left - right))
-            }
-            (Value::Integer(left), ArithmeticOp::Multiply, Value::Integer(right)) => {
-                Ok(Value::Integer(left * right))
-            }
-            (Value::Integer(left), ArithmeticOp::Divide, Value::Integer(right)) => {
-                if right == 0 {
-                    return Err(EvalError::InvalidArithmeticOperation {
-                        left: Value::Integer(left),
-                        operator: ArithmeticOp::Divide,
-                        right: Value::Integer(right),
-                    });
-                }
-
-                Ok(Value::Integer(left / right))
-            }
-            (left, _, right) => Err(EvalError::InvalidArithmeticOperation {
-                left,
-                operator,
-                right,
-            }),
+    match (left, operator, right) {
+        (Value::Integer(left), ArithmeticOp::Add, Value::Integer(right)) => {
+            Ok(Value::Integer(left + right))
         }
-    }
+        (Value::Integer(left), ArithmeticOp::Subtract, Value::Integer(right)) => {
+            Ok(Value::Integer(left - right))
+        }
+        (Value::Integer(left), ArithmeticOp::Multiply, Value::Integer(right)) => {
+            Ok(Value::Integer(left * right))
+        }
+        (Value::Integer(left), ArithmeticOp::Divide, Value::Integer(right)) => {
+            if right == 0 {
+                return Err(EvalError::InvalidArithmeticOperation {
+                    left: Value::Integer(left),
+                    operator: ArithmeticOp::Divide,
+                    right: Value::Integer(right),
+                });
+            }
 
+            Ok(Value::Integer(left / right))
+        }
+        (left, _, right) => Err(EvalError::InvalidArithmeticOperation {
+            left,
+            operator,
+            right,
+        }),
+    }
+}
+    
     fn eval_unary_expression(
         &mut self,
         operator: UnaryOp,
@@ -568,26 +570,26 @@ impl Interpreter {
         fixity: UnaryFixity,
     ) -> Result<Value> {
         let operand_val = self.eval_expression(operand)?;
-
+        
         match (operator, operand_val, fixity) {
             (UnaryOp::Plus, Value::Integer(num), UnaryFixity::Prefix) => {
                 Ok(Value::Integer(num.abs()))
             }
-
+            
             (UnaryOp::Minus, Value::Integer(num), UnaryFixity::Prefix) => Ok(Value::Integer(-num)),
-
+            
             (UnaryOp::Increment, Value::Integer(num), UnaryFixity::Postfix) => {
                 Ok(Value::Integer(num + 1))
             }
-
+            
             (UnaryOp::Decrement, Value::Integer(num), UnaryFixity::Postfix) => {
                 Ok(Value::Integer(num - 1))
             }
-
+            
             (UnaryOp::Not, Value::Boolean(bool_val), UnaryFixity::Prefix) => {
                 Ok(Value::Boolean(flip_bool_type(bool_val)))
             }
-
+            
             _ => {
                 Err(EvalError::InvalidUnaryOperation {
                     operator,
@@ -597,7 +599,7 @@ impl Interpreter {
             }
         }
     }
-
+    
     fn eval_comparison_expression(
         &mut self,
         left: &TypedExpr,
@@ -606,7 +608,7 @@ impl Interpreter {
     ) -> Result<Value> {
         let left = self.eval_expression(left)?;
         let right = self.eval_expression(right)?;
-
+        
         match (left, right) {
             (Value::Integer(left), Value::Integer(right)) => match operator {
                 ComparisonOp::IsEqualTo => Ok(Value::Boolean(bool_raw_to_type(left == right))),
