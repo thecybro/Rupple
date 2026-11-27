@@ -1,9 +1,11 @@
 
 mod parse;
+mod source;
 mod language;
 mod semantic;
 
 pub use parse::*;
+pub use source::*;
 pub use language::*;
 pub use semantic::*;
 
@@ -19,13 +21,16 @@ pub enum RuppleFrontendError {
 /// so expose a clean API to make it easier.
 /// 
 /// Tho the modules are still public just incase anything wants to use them directly
-pub fn checked_program(source: &str) -> Result<TypedProgram, RuppleFrontendError> {
-    let lexed = Lexer::new(source).lex()
-        .map_err(|err| RuppleFrontendError::Lex(err))?;
+pub fn checked_program(
+    file: &SourceFile, 
+) -> Result<TypedProgram, RuppleFrontendError> {    
+    let lexed = Lexer::new(file.text())
+        .lex()
+        .map_err(RuppleFrontendError::Lex)?;
     
     let program = Parser::new(lexed).parse()
-        .map_err(|err| RuppleFrontendError::Parse(err))?;
+        .map_err(RuppleFrontendError::Parse)?;
     
     TypeChecker::new().check_program(program)
-        .map_err(|err| RuppleFrontendError::Type(err))
+        .map_err(RuppleFrontendError::Type)
 }
