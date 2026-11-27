@@ -15,7 +15,7 @@ use super::{
     Token,
     TokenKind,
 };
-use crate::source::Span;
+use crate::source::{Span, Spanned};
 
 #[derive(Debug)]
 pub struct Parser<'a> {
@@ -155,10 +155,15 @@ impl<'a> Parser<'a> {
         let sem_end = self.expect_semicolon()?
             .span
             .end;
+
+        let ident = Spanned {
+            node: identifier.lexeme.to_string(),
+            span: identifier.span
+        };
         
         Ok(RawStmt {
             node: RawStmtKind::Let {
-                identifier: identifier.lexeme.to_string(),
+                identifier: ident,
                 mutable,
                 annotation,
                 expression,
@@ -188,11 +193,16 @@ impl<'a> Parser<'a> {
             start: identifier.span.start,
             end: sem_end,
         };
+
+        let ident = Spanned {
+            node: identifier.lexeme.to_string(),
+            span: identifier.span
+        };
         
         Ok(
             RawStmt {
                 node: RawStmtKind::Assign {
-                    identifier: identifier.lexeme.to_string(),
+                    identifier: ident,
                     operator,
                     expression
                 },
@@ -233,18 +243,23 @@ impl<'a> Parser<'a> {
             .span
             .start;
 
-        let name = self.expect_identifier()?.lexeme.to_string();
+        let name = *self.expect_identifier()?;
         
         self.expect(TokenKind::LParen)?;
 
         let parameters = self.parse_comma_separated(|parser| {
-            let name = parser.expect_identifier()?.lexeme.to_string();
+            let name = *parser.expect_identifier()?;
             parser.expect(TokenKind::Colon)?;
 
             let data_type = parser.expect_type()?;
 
+            let nm = Spanned {
+                node: name.lexeme.to_string(),
+                span: name.span
+            };
+            
             Ok(RawFunctionParameter {
-                name,
+                name: nm,
                 data_type
             })
         })?.into_boxed_slice();
@@ -271,11 +286,16 @@ impl<'a> Parser<'a> {
         let rbrace_end = self.expect(TokenKind::RBrace)?
             .span
             .end;
+
+        let nm = Spanned {
+            node: name.lexeme.to_string(),
+            span: name.span
+        };
         
         Ok(
             RawStmt {
                 node: RawStmtKind::Function {
-                    name,
+                    name: nm,
                     parameters,
                     return_type,
                     body: body.into_boxed_slice()
@@ -609,11 +629,11 @@ impl<'a> Parser<'a> {
                 })
             },
             TokenKind::Identifier => {
-                let identifier = self.advance()?.lexeme.to_string();
+                let identifier = *self.advance()?;
 
                 if self.is_at_end() || self.current()?.kind != TokenKind::LParen {
                     return Ok(RawExpr {
-                        node: RawExprKind::Identifier(identifier),
+                        node: RawExprKind::Identifier(identifier.lexeme.to_string()),
                         span: token_span
                     });
                 }
@@ -630,9 +650,14 @@ impl<'a> Parser<'a> {
                     parser.parse_expression()
                 })?.into_boxed_slice();
 
+                let spanned_ident = Spanned {
+                    node: identifier.lexeme.to_string(),
+                    span: identifier.span
+                };
+                
                 Ok(RawExpr {
                     node: RawExprKind::FunctionCall {
-                        name: identifier,
+                        name: spanned_ident,
                         arguments
                     },
                     span: Span {

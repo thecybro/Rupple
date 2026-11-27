@@ -7,6 +7,8 @@ use crate::source::Spanned;
 pub type RawExpr = Spanned<RawExprKind>;
 pub type RawStmt = Spanned<RawStmtKind>;
 
+pub type RawName = Spanned<String>;
+
 /// Syntax tree produced directly by the parser.
 ///
 /// Raw nodes may still refer to undeclared names, contain invalid type
@@ -36,7 +38,7 @@ pub enum RawExprKind {
         fixity: UnaryFixity,
     },
     FunctionCall {
-        name: String,
+        name: RawName,
         arguments: Box<[RawExpr]>,
     },
 }
@@ -45,13 +47,13 @@ pub enum RawExprKind {
 #[non_exhaustive]
 pub enum RawStmtKind {
     Let {
-        identifier: String,
+        identifier: RawName,
         mutable: bool,
         annotation: Option<Type>,
         expression: RawExpr,
     },
     Assign {
-        identifier: String,
+        identifier: RawName,
         operator: AssignOp,
         expression: RawExpr,
     },
@@ -64,7 +66,7 @@ pub enum RawStmtKind {
         body: Box<[RawStmt]>,
     },
     Function {
-        name: String,
+        name: RawName,
         parameters: Box<[RawFunctionParameter]>,
         return_type: Type,
         body: Box<[RawStmt]>,
@@ -75,7 +77,7 @@ pub enum RawStmtKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawFunctionParameter {
-    pub name: String,
+    pub name: RawName,
     pub data_type: Type,
 }
 
