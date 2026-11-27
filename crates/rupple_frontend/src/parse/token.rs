@@ -1,5 +1,6 @@
 
 use crate::language::Type;
+use crate::source::Span;
 
 /// The token kinds the language recognizes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,13 +117,6 @@ pub enum Keyword {
     Type(Type),
 }
 
-/// To store the location of the characters in the source code
-/// and later to use it to display debug info
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Span {
-    pub start: usize,
-    pub end: usize,
-}
 
 
 /// What a token in this language has

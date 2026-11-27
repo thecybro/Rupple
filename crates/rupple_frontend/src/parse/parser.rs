@@ -1,15 +1,12 @@
 
 
 use crate::language::{
-    ArithmeticOp,
-    ComparisonOp,
-    UnaryOp,
-    UnaryFixity,
-    AssignOp,
-    Type,
+    ArithmeticOp, AssignOp, ComparisonOp, Type, UnaryFixity, UnaryOp,
 };
 use super::{
     RawExpr,
+    RawExprKind,
+    RawStmtKind,
     RawFunctionParameter,
     Keyword,
     LexedOutput,
@@ -17,8 +14,8 @@ use super::{
     RawStmt,
     Token,
     TokenKind,
-    BooleanVal,
 };
+use crate::source::Span;
 
 #[derive(Debug)]
 pub struct Parser<'a> {
@@ -136,13 +133,15 @@ impl<'a> Parser<'a> {
     
     /// Parse the statement if it starts with let
     fn parse_let_stmt(&mut self) -> Result<RawStmt> {  
-        self.expect_keyword(Keyword::Let)?;
+        let keyword_start = self.expect_keyword(Keyword::Let)?
+            .span
+            .start;
 
         let mut mutable = false;
         if self.take_if(TokenKind::Keyword(Keyword::Mut)) {
             mutable = true
         }
-        let identifier = self.expect_identifier()?;
+        let identifier = *self.expect_identifier()?;
         
         let mut annotation = None;
         if self.take_if(TokenKind::Colon) {
@@ -153,13 +152,21 @@ impl<'a> Parser<'a> {
 
         let expression = self.parse_expression()?;
 
-        self.expect_semicolon()?;
+        let sem_end = self.expect_semicolon()?
+            .span
+            .end;
         
-        Ok(RawStmt::Let {
-            identifier,
-            mutable,
-            annotation,
-            expression,
+        Ok(RawStmt {
+            node: RawStmtKind::Let {
+                identifier: identifier.lexeme.to_string(),
+                mutable,
+                annotation,
+                expression,
+            },
+            span: Span {
+                start: keyword_start,
+                end: sem_end
+            }
         })
         
     }
@@ -167,19 +174,29 @@ impl<'a> Parser<'a> {
     /// Parse the statement if it starts with an identifier
     /// which is likely to be an assignment statement
     fn parse_assign_stmt(&mut self) -> Result<RawStmt> {
-        let identifier = self.expect_identifier()?; // Consume the identifier
+        let identifier = *self.expect_identifier()?; // Consume the identifier
 
         let operator = self.expect_assign_operator()?;
         
         let expression = self.parse_expression()?;
 
-        self.expect_semicolon()?;
+        let sem_end = self.expect_semicolon()?
+            .span
+            .end;
+
+        let span = Span {
+            start: identifier.span.start,
+            end: sem_end,
+        };
         
         Ok(
-            RawStmt::Assign {
-                identifier,
-                operator,
-                expression
+            RawStmt {
+                node: RawStmtKind::Assign {
+                    identifier: identifier.lexeme.to_string(),
+                    operator,
+                    expression
+                },
+                span
             }
         )
     }
@@ -212,14 +229,16 @@ impl<'a> Parser<'a> {
     /// let x = add_one(1) 
     /// ```
     fn parse_function_stmt(&mut self) -> Result<RawStmt> {
-        self.expect_keyword(Keyword::Fn)?;
+        let keyword_start = self.expect_keyword(Keyword::Fn)?
+            .span
+            .start;
 
-        let name = self.expect_identifier()?;
+        let name = self.expect_identifier()?.lexeme.to_string();
         
         self.expect(TokenKind::LParen)?;
 
         let parameters = self.parse_comma_separated(|parser| {
-            let name = parser.expect_identifier()?;
+            let name = parser.expect_identifier()?.lexeme.to_string();
             parser.expect(TokenKind::Colon)?;
 
             let data_type = parser.expect_type()?;
@@ -249,37 +268,82 @@ impl<'a> Parser<'a> {
             body.push(self.parse_statement()?);
         }
 
-        self.expect(TokenKind::RBrace)?;
+        let rbrace_end = self.expect(TokenKind::RBrace)?
+            .span
+            .end;
         
         Ok(
-            RawStmt::Function {
-                name,
-                parameters,
-                return_type,
-                body: body.into_boxed_slice()
+            RawStmt {
+                node: RawStmtKind::Function {
+                    name,
+                    parameters,
+                    return_type,
+                    body: body.into_boxed_slice()
+                },
+                span: Span {
+                    start: keyword_start,
+                    end: rbrace_end
+                }
             }
         )
     }
 
+    /// Parse the statements starting with return
+    /// # Example:
+    /// ```no_run
+    /// fn main() -> int {
+    ///     return 1 // return statement
+    /// }
+    /// ```
     fn parse_return_stmt(&mut self) -> Result<RawStmt> {
-        self.expect_keyword(Keyword::Return)?;
+        let keyword_start = self.expect_keyword(Keyword::Return)?
+            .span
+            .start;
         
         let value = self.parse_expression()?;
 
-        self.expect_semicolon()?;
+        let sem_end = self.expect_semicolon()?
+            .span
+            .end;
         
         Ok(
-            RawStmt::Return(Some(value))
+            RawStmt {
+                node: RawStmtKind::Return(Some(value)),
+                span: Span {
+                    start: keyword_start,
+                    end: sem_end
+                }
+            }
         )
     }
 
+    /// Parse the expression statements 
+    /// # Example 
+    /// ```no_run
+    /// // this is treated as an expression statement because this is standalone
+    /// x++;  
+    /// 
+    /// // this (x++) is treated as a normal expression because it is part of a
+    /// // statement
+    /// let y = x++;
+    /// ```
+    /// 
+    /// Note that not all expressions are valid expression statements
     fn parse_expression_stmt(&mut self) -> Result<RawStmt> {
         if self.at(TokenKind::Identifier) {
             let expr = self.parse_expression()?;
 
-            self.expect_semicolon()?;
+            let sem = self.expect_semicolon()?;
 
-            Ok(RawStmt::Expression(expr))
+            let span = Span {
+                start: expr.span.start,
+                end: sem.span.end
+            };
+            
+            Ok(RawStmt {
+                node: RawStmtKind::Expression(expr),
+                span
+            })
         } else {
             Err(ParseError::TokenExpected(
                 "Expected an identifier to form an expression statement!".to_string()
@@ -331,10 +395,18 @@ impl<'a> Parser<'a> {
             // number or identifier or a binary)
             let right = self.parse_addition()?;
 
-            left = RawExpr::Comparison {
-                left: Box::new(left),
-                operator,
-                right: Box::new(right)
+            let span = Span {
+                start: left.span.start,
+                end: right.span.end
+            };
+            
+            left = RawExpr {
+                node: RawExprKind::Comparison {
+                    left: Box::new(left),
+                    operator,
+                    right: Box::new(right)
+                },
+                span
             };
         }
         Ok(left)
@@ -367,16 +439,26 @@ impl<'a> Parser<'a> {
             self.advance()?;
             let right = self.parse_multiplication()?;
 
-            left = RawExpr::Arithmetic {
-                left: Box::new(left),
-                operator,
-                right: Box::new(right)
+            let span = Span {
+                start: left.span.start,
+                end: right.span.end
+            };
+            
+            left = RawExpr {
+                node: RawExprKind::Arithmetic {
+                    left: Box::new(left),
+                    operator,
+                    right: Box::new(right)
+                },
+                span,
             };
         }
         
         Ok(left)
     }
 
+    /// If there is multiplication of division operator in the remaining tokens, 
+    /// parse them and return the parsed expression
     fn parse_multiplication(&mut self) -> Result<RawExpr> {
         /*
          * Call parse_unary() to get the numbers/identifiers
@@ -396,35 +478,59 @@ impl<'a> Parser<'a> {
              * or a binary
              */
             self.advance()?;
-            let right = self.parse_primary()?;
+            let right = self.parse_unary()?;
 
-            left = RawExpr::Arithmetic{
-                left: Box::new(left),
-                operator,
-                right: Box::new(right)
+            let span = Span {
+                start: left.span.start,
+                end: right.span.end
+            };
+            
+            left = RawExpr {
+                node: RawExprKind::Arithmetic{
+                    left: Box::new(left),
+                    operator,
+                    right: Box::new(right)
+                },
+                span,
             };
         }
         Ok(left)
     }
 
+    /// Parse and return unary expressions if present
+    /// # Example
+    /// `x++`
+    /// `+x` etc
     fn parse_unary(&mut self) -> Result<RawExpr> {
+        // We check for prefix unary operator first cuz they have higher
+        // precedence than postfix ones
         if let Some(operator) = self.current_prefix_operator() {
-            self.advance()?;
+            let consumed_operator = *self.advance()?;
             
             let operand = self.parse_unary()?;
-            return Ok(RawExpr::Unary {
-                operator,
-                operand: Box::new(operand),
-                fixity: UnaryFixity::Prefix
+
+            let span = Span {
+                start: consumed_operator.span.start,
+                end: operand.span.end
+            };
+            
+            return Ok(RawExpr {
+                node: RawExprKind::Unary {
+                    operator,
+                    operand: Box::new(operand),
+                    fixity: UnaryFixity::Prefix
+                },
+                span
             });
         }
         self.parse_postfix()
     }
 
 
+    /// Parse postfix unary operators/operands if present and return expression
     fn parse_postfix(&mut self) -> Result<RawExpr> {
         let mut operand = self.parse_primary()?;
-
+        
         while let Some(current) = self.current_kind() {
             let operator = match current {
                 TokenKind::PlusPlus => UnaryOp::Increment,
@@ -432,31 +538,46 @@ impl<'a> Parser<'a> {
                 _ => break
             };
 
-            self.advance()?;
+            let consumed_operator = self.advance()?;
 
-            operand = RawExpr::Unary {
-                operator,
-                operand: Box::new(operand),
-                fixity: UnaryFixity::Postfix
+            let span = Span {
+                start: operand.span.start,
+                end: consumed_operator.span.end
+            };
+            
+            operand = RawExpr {
+                node: RawExprKind::Unary {
+                    operator,
+                    operand: Box::new(operand),
+                    fixity: UnaryFixity::Postfix
+                },
+                span,
             };
         }
 
         Ok(operand)
     }
     
-    /*
-     * This is the actual fundamental function that identifies what we have and returns
-     * numbers or identifiers or expressions by pattern matching
-     * Others just indirectly call it and add respective operators; they dont do the underlying work
-     */
+    /// This is the actual fundamental function that identifies what we have and returns
+    /// numbers or identifiers or expressions by pattern matching
+    /// Others just indirectly call it and add respective operators; 
+    /// they dont do the underlying work
     fn parse_primary(&mut self) -> Result<RawExpr> {
         let token = self.current()?;
-            
+
+        let token_span = Span {
+            start: token.span.start,
+            end: token.span.end,
+        };
+        
         match token.kind {
             TokenKind::IntegerLiteral => {
                 if let Some(integer) = parse_to_i64(token.lexeme) {
                     self.advance()?;
-                    Ok(RawExpr::Integer(integer))
+                    Ok(RawExpr {
+                        node: RawExprKind::Integer(integer),
+                        span: token_span
+                    })
                 } else {
                     Err(ParseError::StringToI64)
                 }
@@ -464,41 +585,61 @@ impl<'a> Parser<'a> {
             TokenKind::FloatLiteral => {
                 if let Some(float) = parse_to_f64(token.lexeme) {
                     self.advance()?;
-                    Ok(RawExpr::Float(float))
+                    Ok(RawExpr {
+                        node: RawExprKind::Float(float),
+                        span: token_span
+                    })
                 } else {
                     Err(ParseError::StringToF64)
                 }
             },
             TokenKind::StringLiteral => {
-                Ok(RawExpr::String(self.advance()?.lexeme.to_string()))
+                Ok(RawExpr {
+                    node: RawExprKind::String(
+                        self.advance()?.lexeme.to_string()
+                    ),
+                    span: token_span
+                })
             },
             TokenKind::BooleanLiteral(boolean_val) => {
                 self.advance()?;
-                Ok(RawExpr::Boolean(boolean_val))
+                Ok(RawExpr {
+                    node: RawExprKind::Boolean(boolean_val),
+                    span: token_span
+                })
             },
             TokenKind::Identifier => {
                 let identifier = self.advance()?.lexeme.to_string();
 
                 if self.is_at_end() || self.current()?.kind != TokenKind::LParen {
-                    return Ok(RawExpr::Identifier(identifier));
+                    return Ok(RawExpr {
+                        node: RawExprKind::Identifier(identifier),
+                        span: token_span
+                    });
                 }
                 
                 self.advance()?; // consume '('
 
-                let arguments = Vec::new();
-                if self.take_if(TokenKind::RParen) {
-                    return Ok(RawExpr::FunctionCall {
+                // Since we are at the condition like `foo(`
+                // We can assume that it's gonna be a function call,
+                // and since parse_comma_separated() slready handles
+                // empty (), we can just call it and get the arguments back
+                // Vec<> of arguments if there were any, empty Vec<> if there
+                // were none
+                let arguments = self.parse_comma_separated(|parser| {
+                    parser.parse_expression()
+                })?.into_boxed_slice();
+
+                Ok(RawExpr {
+                    node: RawExprKind::FunctionCall {
                         name: identifier,
-                        arguments: arguments.into_boxed_slice()
-                    });
-                }
-                
-                Ok(RawExpr::FunctionCall {
-                    name: identifier,
-                    arguments: self.parse_comma_separated(|parser| {
-                        parser.parse_expression()
-                    })?.into_boxed_slice()
-                })
+                        arguments
+                    },
+                    span: Span {
+                        start: token_span.start,
+                        end: self.previous()?.span.end,
+                    }
+                })                
             },
             /*
              * This is the start of other expression inclosed in () so we have to consume the (
@@ -512,8 +653,9 @@ impl<'a> Parser<'a> {
             TokenKind::LParen => {
                 self.advance()?;
 
-                let expr = self.parse_expression()?; // Where recursion happens
-
+                // Parse the expression inside (
+                let mut expr = self.parse_expression()?;
+                
                 if self.is_at_end() {
                     return Err(
                         ParseError::TokenExpected(
@@ -522,15 +664,21 @@ impl<'a> Parser<'a> {
                     )
                 }
  
-                let current = self.current()?;
-                if current.kind != TokenKind::RParen {
-                    let lex = current.lexeme;
+                if self.current_kind() != Some(TokenKind::RParen) {
+                    let lex = self.curr_lexeme()?;
                     return Err(ParseError::TokenExpected(
                                format!("Expected ')' but got '{lex} instead'")
                         ));
                 }
- 
-                self.advance()?;
+
+                // We now consume the ) and mark it as the end of this expression
+                let end = self.advance()?.span.end;
+
+                expr.span = Span {
+                    start: token_span.start,
+                    end,
+                };
+                
                 Ok(expr)
             },
             _ => {
@@ -543,7 +691,6 @@ impl<'a> Parser<'a> {
     }
 }
 
-#[allow(unused)]
 /// Major complimentary helpers method that do much of the work
 impl<'a> Parser<'a> {
     fn parse_comma_separated<T, F>(
@@ -612,17 +759,31 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_condition_stmt(&mut self, keyword: Keyword) -> Result<RawStmt> {
-        self.expect_keyword(keyword)?;
+        let consumed_start = self.expect_keyword(keyword)?
+            .span
+            .start;
 
         match keyword {
-            Keyword::If => Ok(RawStmt::If { 
-                condition: self.parse_expression()?,
-                body: self.parse_block()?
+            Keyword::If => Ok(RawStmt {
+                node: RawStmtKind::If { 
+                    condition: self.parse_expression()?,
+                    body: self.parse_block()?
+                },
+                span: Span {
+                    start: consumed_start,
+                    end: self.previous()?.span.end
+                }
             }),
 
-            Keyword::While => Ok(RawStmt::While { 
-                condition: self.parse_expression()?,
-                body: self.parse_block()?
+            Keyword::While => Ok(RawStmt {
+                node: RawStmtKind::While { 
+                    condition: self.parse_expression()?,
+                    body: self.parse_block()?
+                },
+                span: Span {
+                    start: consumed_start,
+                    end: self.previous()?.span.end
+                }
             }),
 
             _ => {
@@ -633,21 +794,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn take_boolean_literal(&mut self) -> Result<BooleanVal> {
-        match self.current()?.kind {
-            TokenKind::BooleanLiteral(value) => {
-                self.advance()?;
-                Ok(value)
-            }
-            _ => Err(ParseError::TokenExpected(
-                "Expected a token".to_string()
-            ))
-        }
-    }
 }
 
 /// General token helper methods
 impl<'a> Parser<'a> {
+    /// Returns `true` if we are currently at the end
     fn is_at_end(&self) -> bool {
         self.position >= self.tokens.len()
     }
@@ -657,28 +808,41 @@ impl<'a> Parser<'a> {
         self.tokens.get(self.position)
     }
 
-    /// If there are some tokens left, we will most likely get an Ok(),
-    /// from the get statement below
+    /// Returns current token if present; error if not
     fn current(&self) -> Result<&Token<'a>> {
         self.current_opt().ok_or(ParseError::Eof)
     }
-    
+
+    /// Returns the kind of current token
     fn current_kind(&self) -> Option<TokenKind> {
         self.current_opt().map(|token| token.kind)
     }
 
+    /// Returns the lexeme (literal) of the current token
     fn curr_lexeme(&self) -> Result<String> {
         Ok(self.current()?.lexeme.to_string())
     }
 
+    /// Returns next token without consuming if present
     fn peek_opt(&self) -> Option<&Token<'a>> {
         self.tokens.get(self.position + 1)
     }
 
+    /// Returns kind of next token without consuming if present
     fn peek_kind(&self) -> Option<TokenKind> {
         self.peek_opt().map(|token| token.kind)
     }
 
+    /// Returns previous token if present; error if not
+    fn previous(&self) -> Result<&Token<'a>> {
+        self.prev_opt().ok_or(ParseError::Eof)
+    }
+
+    /// Returns previous token if present; None if not
+    fn prev_opt(&self) -> Option<&Token<'a>> {
+        self.tokens.get(self.position -1)
+    }
+    
     /// Are we at this tokenkind? True if yes
     fn at(&self, kind: TokenKind) -> bool {
         self.current_kind() == Some(kind)
@@ -694,6 +858,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Consume (advance the cursor) the current token
     fn advance(&mut self) -> Result<&Token<'a>> {
         if self.is_at_end() {
             return Err(ParseError::Eof);
@@ -708,14 +873,14 @@ impl<'a> Parser<'a> {
     }    
 }
 
-#[allow(unused)]
 /// Specific token related helpers
 impl<'a> Parser<'a> {
     /// We expect a certain kind.
-    /// Consume if we got it; and throw an error if we didn't get it
-    fn expect(&mut self, expected: TokenKind) -> Result<()> {
+    /// Consume and return if we got it; 
+    /// and throw an error if we didn't get it
+    fn expect(&mut self, expected: TokenKind) -> Result<&Token<'a>> {
         if self.take_if(expected) {
-            Ok(())
+            self.previous()
         } else if self.is_at_end() {
             Err(ParseError::TokenExpected(
                 format!("Expected {expected:#?}, but reached end of file")
@@ -730,25 +895,16 @@ impl<'a> Parser<'a> {
     }
 
     /// If the current kind is an identifier (confirmed if expect() passed)
-    /// we return the current lexeme; being sure it's an identifier
-    fn expect_identifier(&mut self) -> Result<String> {
-        if !self.at(TokenKind::Identifier) {
-            return Err(ParseError::TokenExpected(
-                "Expected an identifier".to_string()
-            ));
-        }
-
-        let identifier = self.curr_lexeme()?;
-        self.advance()?;
-
-        Ok(identifier)
+    /// we return the current token; being sure it's an identifier
+    fn expect_identifier(&mut self) -> Result<&Token<'a>> {
+        self.expect(TokenKind::Identifier)
     }
 
-    fn expect_keyword(&mut self, expected: Keyword) -> Result<()> {
+    /// Consume and return the expected keyword, throw error if we didn't find it
+    fn expect_keyword(&mut self, expected: Keyword) -> Result<&Token<'a>> {
         match self.current()?.kind {
             TokenKind::Keyword(keyword) if keyword == expected => {
-                self.advance()?;
-                Ok(())
+                Ok(self.advance()?)
             }
 
             TokenKind::Keyword(keyword) => {
@@ -777,7 +933,8 @@ impl<'a> Parser<'a> {
         })
     }
 
-    
+    /// Consume and return the assign operator if present,
+    /// error otherwise
     fn expect_assign_operator(&mut self) -> Result<AssignOp> {
         self.take_assign_operator().ok_or_else(|| {
             ParseError::TokenExpected(
@@ -786,7 +943,9 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn expect_semicolon(&mut self) -> Result<()> {
+    /// Consume and return the semicolon if present;
+    /// error otherwise
+    fn expect_semicolon(&mut self) -> Result<&Token<'a>> {
         self.expect(TokenKind::SemiColon)
     }
     
@@ -805,12 +964,15 @@ impl<'a> Parser<'a> {
         Some(dt)
     }
 
+    /// Consume and return if current token is assign operator
     fn take_assign_operator(&mut self) -> Option<AssignOp> {
         let op = self.current_assign_operator()?;
         self.advance().ok();
         Some(op)
     }
 
+    /// Returns the unary operator if present
+    /// None otherwise
     fn current_prefix_operator(&self) -> Option<UnaryOp> {
         match self.current_kind()? {
             TokenKind::Plus => Some(UnaryOp::Plus),
@@ -822,6 +984,8 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Returns the assign operator if present
+    /// None otherwise
     fn current_assign_operator(&self) -> Option<AssignOp> {
         match self.current_kind()? {
             TokenKind::Equals => Some(AssignOp::Assign),
@@ -831,6 +995,8 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Returns the unary operator if the next one is that
+    /// None otherwise
     fn peek_assign_operator(&self) -> Option<AssignOp> {
         match self.peek_kind()? {
             TokenKind::Equals => Some(AssignOp::Assign),
@@ -838,14 +1004,6 @@ impl<'a> Parser<'a> {
             TokenKind::MinusEquals => Some(AssignOp::SubtractAssign),
             _ => None
         }
-    }
-
-    fn curr_is_assign_operator(&self) -> bool {
-        self.current_assign_operator().is_some()
-    }
-
-    fn peek_is_assign_operator(&self) -> bool {
-        self.peek_assign_operator().is_some()
     }
 }
 
@@ -857,4 +1015,133 @@ fn parse_to_f64(input: &str) -> Option<f64> {
 /// An external helper for parsing strings to i64
 fn parse_to_i64(input: &str) -> Option<i64> {
     input.parse::<i64>().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parse_source;
+
+    #[test]
+    fn binary_expressions_nodes_preserve_spans() {
+        let program = parse_source("let result = a + b;");
+        let statement = &program.ast[0];
+
+        let RawStmtKind::Let { expression, ..} = &statement.node else {
+            panic!("\nexpected a let statement\n");
+        };
+
+        // Let statement consumed upto the ;, so byte offset is [13, 18]
+        assert_eq!(
+            expression.span,
+            Span {
+                start: 13,
+                end: 18
+            }
+        );
+
+        let RawExprKind::Arithmetic { left, right, .. } = &expression.node else {
+            panic!("\nexpected an arithmetic expression\n");
+        };
+
+        assert_eq!(
+            left.span,
+            Span {
+                start: 13,
+                end: 14
+            }
+        );
+
+        assert_eq!(
+            right.span,
+            Span {
+                start: 17,
+                end: 18
+            }
+        );
+    }
+
+    #[test]
+    fn paren_expressions_nodes_preserve_spans() {
+        let program = parse_source("let x = (a+b);");
+        let statement = &program.ast[0];
+
+        let RawStmtKind::Let { expression, .. } = &statement.node else {
+            panic!("\nexpected a let statement\n")
+        };
+
+        // token upto ; is counted as part of expression,
+        // so we consider its span as well
+        assert_eq!(
+            expression.span,
+            Span {
+                start: 8,
+                end: 13
+            }
+        );
+
+        let RawExprKind::Arithmetic { left, right, .. } = &expression.node else {
+            panic!("\nexpected an arithmetic expression\n");
+        };
+
+        assert_eq!(
+            left.span,
+            Span {
+                start: 9,
+                end: 10
+            }
+        );
+
+        assert_eq!(
+            right.span,
+            Span {
+                start: 11,
+                end: 12
+            }
+        );
+    }
+
+    #[test]
+    fn func_call_expressions_nodes_preserve_sapans() {
+        let program = parse_source("let x = add(a,b);");
+        let statement = &program.ast[0];
+
+        let RawStmtKind::Let { expression, .. } = &statement.node else {
+            panic!("\nexpected a let statement\n");
+        };
+
+        assert_eq!(
+            expression.span,
+            Span {
+                start: 8,
+                end: 16
+            }
+        );
+
+        let RawExprKind::FunctionCall { arguments, .. } = &expression.node else {
+            panic!("\nexpected a function call expression\n");
+        };
+
+        let mut args = arguments.iter();
+        
+        let (Some(arg1), Some(arg2)) = (args.next(), args.next()) else {
+            panic!("\nexpected arguments to be present in the function call expression\n");
+        };
+    
+        assert_eq!(
+            arg1.span,
+            Span {
+                start: 12,
+                end: 13
+            }
+        );
+
+        assert_eq!(
+            arg2.span,
+            Span {
+                start: 14,
+                end: 15
+            }
+        );
+    }
 }

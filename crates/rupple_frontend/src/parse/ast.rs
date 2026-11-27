@@ -1,6 +1,11 @@
 use crate::language::{ArithmeticOp, AssignOp, ComparisonOp, Type, UnaryFixity, UnaryOp};
 
 use super::BooleanVal;
+use crate::source::Spanned;
+
+/// Expression and Statement kinds with spans
+pub type RawExpr = Spanned<RawExprKind>;
+pub type RawStmt = Spanned<RawStmtKind>;
 
 /// Syntax tree produced directly by the parser.
 ///
@@ -9,7 +14,7 @@ use super::BooleanVal;
 /// semantic phase before being passed to a backend.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub enum RawExpr {
+pub enum RawExprKind {
     Integer(i64),
     Float(f64),
     String(String),
@@ -38,7 +43,7 @@ pub enum RawExpr {
 
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub enum RawStmt {
+pub enum RawStmtKind {
     Let {
         identifier: String,
         mutable: bool,

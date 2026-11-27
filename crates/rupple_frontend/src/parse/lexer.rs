@@ -5,10 +5,10 @@ use super::{
   BooleanVal,
   Keyword,
   LexedOutput,
-  Span,
 };
 
 use crate::language::Type;
+use crate::source::Span;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LexError {
