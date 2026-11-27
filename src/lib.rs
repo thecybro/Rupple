@@ -15,6 +15,7 @@ pub use rupple_frontend::{
     ParseError,
     TypeError,
 
+    SourceFile,
     Lexer,
     Parser,
     Type,
@@ -44,10 +45,36 @@ impl From<EvalError> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// A simple glue for the lexer and parser (and Interpreter/code generator later)
-/// which calls and takes return value from one and gives it to other
-pub fn run(source: &str) -> Result<()> {
-    let typed_program = checked_program(source)?;
+/// Library entry point for rupple frontend
+/// 
+/// Call this if you want it to get the source from a file
+/// without you having to read it and give it the source
+pub fn run() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut path = String::new();
+
+    if args.len() > 1 {
+        path = args[1].clone();
+    } else {
+        println!("Rupple")
+    }
+
+    let msg = format!("Couldn't read file {path}");
+
+    let source = std::fs::read_to_string(path.trim()).expect(&msg);
+
+    let file = SourceFile::new(path, source);
+    let typed_program = checked_program(&file)?;
+    
+    Interpreter::new().evaluate(&typed_program)?;
+    Ok(())
+}
+
+/// Call this function if you already have the filename and source
+/// available
+pub fn run_from_source(filename: &str, source: &str) -> Result<()> {
+    let file = SourceFile::new(filename.to_string(), source.to_string());
+    let typed_program = checked_program(&file)?;
     
     Interpreter::new().evaluate(&typed_program)?;
     Ok(())
@@ -55,7 +82,8 @@ pub fn run(source: &str) -> Result<()> {
 
 #[test]
 fn test_multiple_features_at_once() {
-    let source = "// This code must be valid before we add more features
+    let source = "
+    // This code must be valid before we add more features
     // Including this comment here
     
     let mut resu = add(10, 20);
@@ -72,20 +100,27 @@ fn test_multiple_features_at_once() {
     }
 ";
 
-    assert_eq!(run(&source), Ok(()))
+    assert_eq!(
+        run_from_source("sample.rpl", &source), 
+        Ok(())
+    )
 }
 
 #[test]
 fn test_immutable_assignment_on_unary_expression() {
-    let source = "let x = 1;
-    x++;";
+    let source = 
+    "
+    let x = 1;
+    x++;
+    ";
 
-    assert_eq!(run(&source), Err(
-        Error::Frontend(
-            RuppleFrontendError::Type(
-                    TypeError::ImmutableAssignment("x".to_string())
+    assert_eq!(run_from_source("sample.rpl", &source), 
+        Err(
+            Error::Frontend(
+                RuppleFrontendError::Type(
+                        TypeError::ImmutableAssignment("x".to_string())
+                    )
                 )
             )
-        )
     )
 }
